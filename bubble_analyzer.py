@@ -1,7 +1,37 @@
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 import os
+from datetime import datetime
+
+# --- HELPER: This function replaces Matplotlib for creating the steps image ---
+
+
+def create_steps_visualization(images, labels):
+    """Creates a single grid image from multiple images using only OpenCV."""
+    # Ensure all images are 3-channel BGR for stacking
+    processed_images = []
+    for img in images:
+        if len(img.shape) == 2:  # Check if it's grayscale
+            processed_images.append(cv2.cvtColor(img, cv2.COLOR_GRAY2BGR))
+        else:
+            processed_images.append(img)
+
+    # Add text labels to each image
+    for i, img in enumerate(processed_images):
+        cv2.putText(img, labels[i], (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+    # Arrange images into a 2x2 grid
+    if len(processed_images) == 4:
+        top_row = np.hstack((processed_images[0], processed_images[1]))
+        bottom_row = np.hstack((processed_images[2], processed_images[3]))
+        grid = np.vstack((top_row, bottom_row))
+    else:  # Fallback for a different number of images
+        grid = np.hstack(processed_images)
+
+    return grid
+
+# --- The rest of your functions, now optimized ---
 
 
 def create_tea_mask(image):
@@ -10,7 +40,8 @@ def create_tea_mask(image):
     contours, _ = cv2.findContours(
         binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
-        raise ValueError("No tea detected in image")
+        # Instead of crashing, let's return an empty mask
+        return np.zeros_like(image)
     main_contour = max(contours, key=cv2.contourArea)
     mask = np.zeros_like(image)
     cv2.drawContours(mask, [main_contour], -1, (255), -1)
@@ -42,52 +73,22 @@ def detect_bubbles(binary, min_area=5, max_area=500):
     return valid_bubbles
 
 
-def visualize_results(original, masked, enhanced, binary, final_contours, output_dir):
-    visualization = cv2.cvtColor(original, cv2.COLOR_GRAY2BGR)
-    for contour in final_contours:
-        area = cv2.contourArea(contour)
-        color = (0, 255, 0) if area < 50 else (
-            255, 0, 0) if area < 200 else (0, 0, 255)
-        cv2.drawContours(visualization, [contour], -1, color, 2)
-        M = cv2.moments(contour)
-        if M["m00"] != 0:
-            cX = int(M["m10"] / M["m00"])
-            cY = int(M["m01"] / M["m00"])
-            cv2.circle(visualization, (cX, cY), 2, color, -1)
-
-    plt.figure(figsize=(15, 5))
-    plt.subplot(141)
-    plt.imshow(masked, cmap='gray')
-    plt.title('Masked')
-    plt.axis('off')
-    plt.subplot(142)
-    plt.imshow(enhanced, cmap='gray')
-    plt.title('Enhanced')
-    plt.axis('off')
-    plt.subplot(143)
-    plt.imshow(binary, cmap='gray')
-    plt.title('Binary')
-    plt.axis('off')
-    plt.subplot(144)
-    plt.imshow(cv2.cvtColor(visualization, cv2.COLOR_BGR2RGB))
-    plt.title('Final Detection')
-    plt.axis('off')
-    plt.tight_layout()
-
-    timestamp = cv2.getTickCount()
-    steps_path = os.path.join(output_dir, f'processing_steps_{timestamp}.png')
-    final_path = os.path.join(output_dir, f'final_detection_{timestamp}.jpg')
-
-    plt.savefig(steps_path)
-    cv2.imwrite(final_path, visualization)
-    plt.close()
-    return visualization, steps_path, final_path
-
-
 def count_bubbles(image_path):
-    original = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    if original is None:
+    # --- OPTIMIZATION 1: RESIZE LARGE IMAGES ---
+    MAX_WIDTH = 1024
+    # Read with color first for final viz
+    original_full = cv2.imread(image_path)
+    if original_full is None:
         raise ValueError("Could not read image")
+
+    h, w = original_full.shape[:2]
+    if w > MAX_WIDTH:
+        new_h = int((MAX_WIDTH / w) * h)
+        original_full = cv2.resize(
+            original_full, (MAX_WIDTH, new_h), interpolation=cv2.INTER_AREA)
+
+    # Convert to grayscale for processing
+    original = cv2.cvtColor(original_full, cv2.COLOR_BGR2GRAY)
 
     mask = create_tea_mask(original)
     masked_image = cv2.bitwise_and(original, mask)
@@ -97,21 +98,26 @@ def count_bubbles(image_path):
     binary = cv2.bitwise_and(binary, mask)
     valid_bubbles = detect_bubbles(binary)
 
+    # Create the final detection image
+    final_detection_image = original_full.copy()
+    cv2.drawContours(final_detection_image, valid_bubbles, -1, (0, 255, 0), 2)
+
+    # --- OPTIMIZATION 2: USE OPENCV INSTEAD OF MATPLOTLIB ---
+    # Create the processing steps grid image
+    steps_images = [masked_image, enhanced, binary, final_detection_image]
+    steps_labels = ["1. Masked", "2. Enhanced",
+                    "3. Binary", "4. Final Detection"]
+    steps_grid = create_steps_visualization(steps_images, steps_labels)
+
+    # Save the generated images
     output_dir = 'static/uploads'
-    os.makedirs(output_dir, exist_ok=True)
+    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
 
-    visualization, steps_path, final_path = visualize_results(
-        original, masked_image, enhanced, binary, valid_bubbles, output_dir)
+    final_path = os.path.join(output_dir, f'final_detection_{timestamp}.jpg')
+    # Save as JPG for smaller size
+    steps_path = os.path.join(output_dir, f'processing_steps_{timestamp}.jpg')
+
+    cv2.imwrite(final_path, final_detection_image)
+    cv2.imwrite(steps_path, steps_grid)
+
     return len(valid_bubbles), steps_path, final_path
-
-
-if __name__ == "__main__":
-    # Change this to test the script directly
-    image_path = "path/to/your/test/image.png"
-    try:
-        num_bubbles, steps_image, final_image = count_bubbles(image_path)
-        print(f"Number of bubbles detected: {num_bubbles}")
-        print(f"Processing steps saved to: {steps_image}")
-        print(f"Final detection saved to: {final_image}")
-    except Exception as e:
-        print(f"Error processing image: {str(e)}")
