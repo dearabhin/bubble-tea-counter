@@ -1,0 +1,27 @@
+# A human-readable name for your GitHub Action
+name: Uptime Ping
+
+# Controls when the action will run
+on:
+  schedule:
+    # This is a cron job expression that runs the action every 14 minutes.
+    # The syntax is: minute hour day-of-month month day-of-week
+    # '*/14' in the minute field means "run at the 0th, 14th, 28th, and 42nd minute of every hour".
+    - cron: '*/14 * * * *'
+  # This line allows you to also run this workflow manually from the Actions tab on GitHub.
+  workflow_dispatch:
+
+# Defines the job that will be run
+jobs:
+  ping:
+    # The type of virtual machine to run the job on. 'ubuntu-latest' is standard and reliable.
+    runs-on: ubuntu-latest
+
+    # The sequence of steps to perform in the job
+    steps:
+      # Each '-' is a separate step
+      - name: Ping my site to keep it warm
+        # The command to run. We use curl to make an HTTP request.
+        # -sS makes curl silent on success but still shows errors.
+        # > /dev/null discards the HTML output so it doesn't clutter the logs.
+        run: curl -sS "https://bubblelytics.onrender.com/" > /dev/null
