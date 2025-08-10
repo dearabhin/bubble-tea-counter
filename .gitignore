@@ -1,0 +1,16 @@
+# Virtual Environment
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE files
+.vscode/
+.idea/
+
+# Database file (optional, but good practice for bigger projects)
+# For this project, we will upload it so our leaderboard isn't empty.
+# If you want to start fresh, uncomment the line below:
+# tea.db
